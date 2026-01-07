@@ -13,6 +13,11 @@ MODELS = {
 }
 
 
+def sanitize_id(model_id: str) -> str:
+    """Convert model ID to valid CSS identifier (replace . and / with -)."""
+    return model_id.replace(".", "-").replace("/", "-")
+
+
 class ModelPanel(Vertical):
     """A panel displaying output from a single LLM."""
 
@@ -23,7 +28,7 @@ class ModelPanel(Vertical):
 
     def compose(self) -> ComposeResult:
         yield Static(self.title, classes="panel-title")
-        yield RichLog(id=f"log-{self.model_id}", markup=True, wrap=True)
+        yield RichLog(id=f"log-{sanitize_id(self.model_id)}", markup=True, wrap=True)
 
 
 class PromptInput(Input):
@@ -100,7 +105,7 @@ class MultiLLMApp(App):
     def compose(self) -> ComposeResult:
         with Horizontal(id="panels"):
             for model_id, title in MODELS.items():
-                yield ModelPanel(model_id, title, id=f"panel-{model_id}")
+                yield ModelPanel(model_id, title, id=f"panel-{sanitize_id(model_id)}")
         with Vertical(id="prompt-container"):
             yield PromptInput(placeholder="Enter prompt (Enter=continue, Shift+Enter=new conversation)", id="prompt")
 
@@ -124,12 +129,12 @@ class MultiLLMApp(App):
             self._init_conversations()
             # Clear all logs
             for model_id in MODELS:
-                log = self.query_one(f"#log-{model_id}", RichLog)
+                log = self.query_one(f"#log-{sanitize_id(model_id)}", RichLog)
                 log.clear()
 
         # Add separator and prompt to each log
         for model_id in MODELS:
-            log = self.query_one(f"#log-{model_id}", RichLog)
+            log = self.query_one(f"#log-{sanitize_id(model_id)}", RichLog)
             if new_conversation:
                 log.write("[bold cyan]--- New Conversation ---[/]")
             log.write(f"[bold yellow]You:[/] {prompt_text}")
@@ -142,7 +147,7 @@ class MultiLLMApp(App):
     @work(thread=True, group="llm")
     def stream_to_model(self, model_id: str, prompt: str) -> None:
         """Stream a response from a model to its panel."""
-        log = self.query_one(f"#log-{model_id}", RichLog)
+        log = self.query_one(f"#log-{sanitize_id(model_id)}", RichLog)
         conversation = self.conversations[model_id]
 
         try:
