@@ -723,24 +723,22 @@ async def test_slash_command_case_insensitive(mock_llm):
 
 
 @pytest.mark.asyncio
-async def test_slash_command_with_leading_space_treated_as_regular_prompt(mock_llm):
-    """' /new' (with leading space) should be treated as regular prompt."""
+async def test_slash_command_with_leading_space_still_executes(mock_llm):
+    """' /new' (with leading space) should still execute as command after strip()."""
     app = MultiLLMApp()
     async with app.run_test() as pilot:
         prompt = app.query_one("#prompt", PromptInput)
-        prompt.value = " /new"  # Leading space
+        prompt.value = " /new"  # Leading space - gets stripped by on_key
         await pilot.press("enter")
-        await pilot.pause()
 
-        # Should be submitted as regular prompt (not as command)
-        # Input should be cleared
+        # Input should be cleared (command executed)
         assert prompt.value == ""
 
-        # Logs should have prompt content (not command confirmation)
+        # Logs should have confirmation message (command executed, not regular prompt)
         for model_id in MODELS:
             log = app.query_one(f"#log-{sanitize_id(model_id)}", RichLog)
-            # Should have "You: /new" format, not command confirmation
-            assert len(log.lines) >= 2
+            # Should have only the confirmation message
+            assert len(log.lines) == 1
 
 
 # --- Additional Coverage: handle_slash_command Edge Cases ---
