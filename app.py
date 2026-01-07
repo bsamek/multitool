@@ -1,5 +1,6 @@
 """Multi-LLM Comparison Terminal App - Compare responses from multiple LLMs side by side."""
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import llm
@@ -149,6 +150,23 @@ class MultiLLMApp(App):
             model = llm.get_model(model_id)
             self.conversations[model_id] = model.conversation()
 
+    def get_model_log(self, model_id: str) -> RichLog:
+        """Get the RichLog widget for a specific model.
+
+        Centralizes widget lookup to avoid scattered string-based ID queries.
+        """
+        return self.query_one(f"#log-{sanitize_id(model_id)}", RichLog)
+
+    def for_each_model_log(self, callback: Callable[[str, RichLog], None]) -> None:
+        """Execute a callback for each model's log widget.
+
+        Args:
+            callback: Function that receives (model_id, log) for each model.
+        """
+        for model_id in MODELS:
+            log = self.get_model_log(model_id)
+            callback(model_id, log)
+
     def compose(self) -> ComposeResult:
         with Horizontal(id="panels"):
             for model_id, title in MODELS.items():
@@ -177,10 +195,11 @@ class MultiLLMApp(App):
         prompt_input.value = ""
 
         # Add prompt to each log
-        for model_id in MODELS:
-            log = self.query_one(f"#log-{sanitize_id(model_id)}", RichLog)
+        def write_prompt(_model_id: str, log: RichLog) -> None:
             log.write(f"[bold yellow]You:[/] {prompt_text}")
             log.write("")  # blank line before response
+
+        self.for_each_model_log(write_prompt)
 
         # Stream responses from all models concurrently
         for model_id in MODELS:
@@ -200,22 +219,20 @@ class MultiLLMApp(App):
     def cmd_new(self) -> None:
         """Handler for /new command - clears logs and reinitializes conversations."""
         # Clear all logs
-        for model_id in MODELS:
-            log = self.query_one(f"#log-{sanitize_id(model_id)}", RichLog)
-            log.clear()
+        self.for_each_model_log(lambda _, log: log.clear())
 
         # Reinitialize conversations
         self._init_conversations()
 
         # Show confirmation
-        for model_id in MODELS:
-            log = self.query_one(f"#log-{sanitize_id(model_id)}", RichLog)
-            log.write("[bold cyan]--- New Conversation Started ---[/]")
+        self.for_each_model_log(
+            lambda _, log: log.write("[bold cyan]--- New Conversation Started ---[/]")
+        )
 
     @work(thread=True, group="llm")
     def stream_to_model(self, model_id: str, prompt: str) -> None:
         """Stream a response from a model to its panel."""
-        log = self.query_one(f"#log-{sanitize_id(model_id)}", RichLog)
+        log = self.get_model_log(model_id)
         conversation = self.conversations[model_id]
 
         try:
