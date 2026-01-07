@@ -12,6 +12,12 @@ dependencies = [
     "textual-autocomplete>=4.0.6",
 ]
 
+[project.scripts]
+multitool = "app:main"
+
+[tool.setuptools]
+py-modules = ["app"]
+
 [dependency-groups]
 dev = [
     "pytest>=9.0.2",

@@ -16,10 +16,34 @@ Requires Python 3.13+.
 uv sync
 ```
 
-## Usage
+## Installation
+
+To install globally and run from anywhere:
 
 ```bash
-python app.py
+uv tool install .
+```
+
+This installs `multitool` to `~/.local/bin/`. You can then run it from any directory.
+
+To uninstall:
+
+```bash
+uv tool uninstall multitool
+```
+
+## Usage
+
+Run the app:
+
+```bash
+multitool
+```
+
+Or without installing globally:
+
+```bash
+uv run multitool
 ```
 
 - Type a prompt and press **Enter** to send to all models

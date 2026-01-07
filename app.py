@@ -229,6 +229,11 @@ class MultiLLMApp(App):
             self.call_from_thread(log.write, f"[bold red]Error: {e}[/]")
 
 
-if __name__ == "__main__":
+def main():
+    """Entry point for the application."""
     app = MultiLLMApp()
     app.run()
+
+
+if __name__ == "__main__":
+    main()
