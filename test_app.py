@@ -4,7 +4,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 from textual.widgets import Input, RichLog
 
-from app import MultiLLMApp, ModelPanel, PromptInput, MODELS, sanitize_id
+from app import MultiLLMApp, ModelPanel, PromptInput, MODELS, sanitize_id, SLASH_COMMANDS, SlashCommandAutoComplete
 
 
 # --- Fixtures ---
@@ -217,25 +217,63 @@ async def test_submit_spawns_workers(mock_llm):
             assert len(log.lines) >= 3
 
 
-# --- New Conversation Tests ---
+# --- Slash Command Registry Tests ---
+
+
+def test_slash_commands_has_new():
+    """SLASH_COMMANDS should include /new command."""
+    assert "/new" in SLASH_COMMANDS
+
+
+def test_slash_command_has_required_fields():
+    """Each slash command should have name, description, and handler."""
+    for cmd_name, cmd in SLASH_COMMANDS.items():
+        assert cmd.name, f"{cmd_name} missing name"
+        assert cmd.description, f"{cmd_name} missing description"
+        assert cmd.handler, f"{cmd_name} missing handler"
+
+
+# --- /new Command Functionality Tests ---
 
 
 @pytest.mark.asyncio
-async def test_new_conversation_reinits_conversations(mock_llm):
-    """Shift+Enter should create new conversation objects."""
+async def test_slash_new_clears_all_logs(mock_llm):
+    """/new command should clear all logs."""
+    app = MultiLLMApp()
+    async with app.run_test() as pilot:
+        prompt = app.query_one("#prompt", PromptInput)
+
+        # Send a message first to populate logs
+        prompt.value = "Hello"
+        await pilot.press("enter")
+        await pilot.pause()
+
+        # Verify logs have content
+        for model_id in MODELS:
+            log = app.query_one(f"#log-{sanitize_id(model_id)}", RichLog)
+            assert len(log.lines) > 0
+
+        # Execute /new command
+        prompt.value = "/new"
+        await pilot.press("enter")
+
+        # Logs should only have the confirmation message
+        for model_id in MODELS:
+            log = app.query_one(f"#log-{sanitize_id(model_id)}", RichLog)
+            assert len(log.lines) == 1  # Just confirmation
+
+
+@pytest.mark.asyncio
+async def test_slash_new_reinits_conversations(mock_llm):
+    """/new command should create new conversation objects."""
     app = MultiLLMApp()
     async with app.run_test() as pilot:
         # Get original conversation objects
         original_convs = {k: v for k, v in app.conversations.items()}
 
         prompt = app.query_one("#prompt", PromptInput)
-        prompt.value = "First message"
+        prompt.value = "/new"
         await pilot.press("enter")
-        await pilot.pause()
-
-        # Start new conversation
-        prompt.value = "Second message"
-        await pilot.press("shift+enter")
 
         # Conversations should be new objects
         for model_id in MODELS:
@@ -243,33 +281,183 @@ async def test_new_conversation_reinits_conversations(mock_llm):
 
 
 @pytest.mark.asyncio
-async def test_new_conversation_clears_logs(mock_llm):
-    """Shift+Enter should clear logs before writing."""
+async def test_slash_new_shows_confirmation(mock_llm):
+    """/new command should show confirmation message."""
+    app = MultiLLMApp()
+    async with app.run_test() as pilot:
+        prompt = app.query_one("#prompt", PromptInput)
+        prompt.value = "/new"
+        await pilot.press("enter")
+
+        # Each log should have the confirmation message
+        for model_id in MODELS:
+            log = app.query_one(f"#log-{sanitize_id(model_id)}", RichLog)
+            assert len(log.lines) == 1
+
+
+@pytest.mark.asyncio
+async def test_slash_new_clears_input(mock_llm):
+    """/new command should clear the input field."""
+    app = MultiLLMApp()
+    async with app.run_test() as pilot:
+        prompt = app.query_one("#prompt", PromptInput)
+        prompt.value = "/new"
+        await pilot.press("enter")
+
+        assert prompt.value == ""
+
+
+# --- Invalid Slash Command Tests ---
+
+
+@pytest.mark.asyncio
+async def test_invalid_slash_command_blocks_submission(mock_llm):
+    """Invalid slash commands should not submit and leave input unchanged."""
+    app = MultiLLMApp()
+    async with app.run_test() as pilot:
+        prompt = app.query_one("#prompt", PromptInput)
+        prompt.value = "/invalid"
+        await pilot.press("enter")
+
+        # Input should remain unchanged (not cleared)
+        assert prompt.value == "/invalid"
+
+        # Logs should remain empty
+        for model_id in MODELS:
+            log = app.query_one(f"#log-{sanitize_id(model_id)}", RichLog)
+            assert len(log.lines) == 0
+
+
+@pytest.mark.asyncio
+async def test_partial_slash_command_autocompletes(mock_llm):
+    """Partial slash commands like /ne get autocompleted, then execute on second Enter."""
+    app = MultiLLMApp()
+    async with app.run_test() as pilot:
+        prompt = app.query_one("#prompt", PromptInput)
+        prompt.value = "/ne"
+        await pilot.press("enter")
+
+        # Autocomplete fills in /new but doesn't execute yet
+        assert prompt.value == "/new"
+
+        # Press Enter again to execute the completed command
+        await pilot.press("enter")
+        assert prompt.value == ""
+
+
+@pytest.mark.asyncio
+async def test_slash_only_autocompletes(mock_llm):
+    """Just '/' gets autocompleted, then executes on second Enter."""
+    app = MultiLLMApp()
+    async with app.run_test() as pilot:
+        prompt = app.query_one("#prompt", PromptInput)
+        prompt.value = "/"
+        await pilot.press("enter")
+
+        # Autocomplete fills in /new but doesn't execute yet
+        assert prompt.value == "/new"
+
+        # Press Enter again to execute the completed command
+        await pilot.press("enter")
+        assert prompt.value == ""
+
+
+@pytest.mark.asyncio
+async def test_no_matching_slash_command_blocks(mock_llm):
+    """Slash commands that don't match anything should block submission."""
+    app = MultiLLMApp()
+    async with app.run_test() as pilot:
+        prompt = app.query_one("#prompt", PromptInput)
+        prompt.value = "/xyz"
+        await pilot.press("enter")
+
+        # No autocomplete match, invalid command - input should remain
+        assert prompt.value == "/xyz"
+
+        # Logs should remain empty
+        for model_id in MODELS:
+            log = app.query_one(f"#log-{sanitize_id(model_id)}", RichLog)
+            assert len(log.lines) == 0
+
+
+# --- Normal Prompt Handling Tests ---
+
+
+@pytest.mark.asyncio
+async def test_regular_prompt_still_works(mock_llm):
+    """Non-slash input should submit normally."""
+    app = MultiLLMApp()
+    async with app.run_test() as pilot:
+        prompt = app.query_one("#prompt", PromptInput)
+        prompt.value = "Hello world"
+        await pilot.press("enter")
+        await pilot.pause()
+
+        # Input should be cleared
+        assert prompt.value == ""
+
+        # Logs should have content
+        for model_id in MODELS:
+            log = app.query_one(f"#log-{sanitize_id(model_id)}", RichLog)
+            assert len(log.lines) >= 2
+
+
+# --- Autocomplete Tests ---
+
+
+@pytest.mark.asyncio
+async def test_autocomplete_widget_exists(mock_llm):
+    """SlashCommandAutoComplete widget should exist in the app."""
+    app = MultiLLMApp()
+    async with app.run_test() as pilot:
+        autocomplete = app.query_one(SlashCommandAutoComplete)
+        assert autocomplete is not None
+
+
+# --- Integration Tests ---
+
+
+@pytest.mark.asyncio
+async def test_new_then_prompt_workflow(mock_llm):
+    """Can use /new then send normal prompts."""
     app = MultiLLMApp()
     async with app.run_test() as pilot:
         prompt = app.query_one("#prompt", PromptInput)
 
-        # Send first message
-        prompt.value = "First"
+        # Start with /new
+        prompt.value = "/new"
+        await pilot.press("enter")
+
+        # Then send a normal prompt
+        prompt.value = "Hello"
         await pilot.press("enter")
         await pilot.pause()
 
-        # Get line counts after first message
-        counts_before = {}
+        # Logs should have confirmation + prompt + response
         for model_id in MODELS:
             log = app.query_one(f"#log-{sanitize_id(model_id)}", RichLog)
-            counts_before[model_id] = len(log.lines)
+            assert len(log.lines) >= 3
 
-        # New conversation - logs get cleared then new content written
-        prompt.value = "Second"
-        await pilot.press("shift+enter")
-        await pilot.pause()
 
-        # Logs should have new conversation marker + new prompt
+@pytest.mark.asyncio
+async def test_multiple_new_commands(mock_llm):
+    """Can use /new multiple times in a session."""
+    app = MultiLLMApp()
+    async with app.run_test() as pilot:
+        prompt = app.query_one("#prompt", PromptInput)
+
+        # First /new
+        prompt.value = "/new"
+        await pilot.press("enter")
+        original_convs = {k: v for k, v in app.conversations.items()}
+
+        # Second /new
+        prompt.value = "/new"
+        await pilot.press("enter")
+
+        # Conversations should be different from first /new
         for model_id in MODELS:
-            log = app.query_one(f"#log-{sanitize_id(model_id)}", RichLog)
-            # Should have: separator, You prompt, blank, response, blank
-            assert len(log.lines) >= 4
+            assert app.conversations[model_id] is not original_convs[model_id]
 
 
 # --- Error Handling Tests ---

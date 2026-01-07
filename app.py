@@ -1,10 +1,13 @@
 """Multi-LLM Comparison Terminal App - Compare responses from multiple LLMs side by side."""
 
+from dataclasses import dataclass
+
 import llm
 from textual import events, work
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Input, RichLog, Static
+from textual_autocomplete import AutoComplete, DropdownItem, TargetState
 
 MODELS = {
     "claude-opus-4.5": "Claude Opus 4.5",
@@ -13,9 +16,49 @@ MODELS = {
 }
 
 
+@dataclass
+class SlashCommand:
+    """Definition of a slash command."""
+
+    name: str
+    description: str
+    handler: str  # method name on MultiLLMApp
+
+
+SLASH_COMMANDS: dict[str, SlashCommand] = {
+    "/new": SlashCommand("new", "Clear logs and start fresh conversations", "cmd_new"),
+}
+
+
 def sanitize_id(model_id: str) -> str:
     """Convert model ID to valid CSS identifier (replace . and / with -)."""
     return model_id.replace(".", "-").replace("/", "-")
+
+
+class SlashCommandAutoComplete(AutoComplete):
+    """AutoComplete that shows slash commands when input starts with '/'."""
+
+    def __init__(self, target: Input, commands: dict[str, SlashCommand]):
+        self.commands = commands
+        super().__init__(target, candidates=self.get_candidates)
+
+    def get_candidates(self, state: TargetState) -> list[DropdownItem]:
+        """Return command candidates when input starts with '/'."""
+        text = state.text
+        if not text.startswith("/"):
+            return []
+
+        candidates = []
+        search = text.lower()
+        for cmd_name, cmd in sorted(self.commands.items()):
+            if cmd_name.lower().startswith(search):
+                candidates.append(
+                    DropdownItem(
+                        main=cmd_name,
+                        prefix=cmd.description,
+                    )
+                )
+        return candidates
 
 
 class ModelPanel(Vertical):
@@ -32,17 +75,21 @@ class ModelPanel(Vertical):
 
 
 class PromptInput(Input):
-    """Custom input that handles Enter vs Shift+Enter."""
+    """Custom input that handles Enter and slash commands."""
 
     def on_key(self, event: events.Key) -> None:
         if event.key == "enter":
             event.prevent_default()
             event.stop()
-            self.app.submit_prompt(new_conversation=False)
-        elif event.key == "shift+enter":
-            event.prevent_default()
-            event.stop()
-            self.app.submit_prompt(new_conversation=True)
+
+            text = self.value.strip()
+            if text.startswith("/"):
+                # Only submit if it's a valid slash command
+                if text.lower() in SLASH_COMMANDS:
+                    self.app.handle_slash_command(text)
+                # Invalid slash command - do nothing (block submission)
+            else:
+                self.app.submit_prompt()
 
 
 class MultiLLMApp(App):
@@ -107,13 +154,18 @@ class MultiLLMApp(App):
             for model_id, title in MODELS.items():
                 yield ModelPanel(model_id, title, id=f"panel-{sanitize_id(model_id)}")
         with Vertical(id="prompt-container"):
-            yield PromptInput(placeholder="Enter prompt (Enter=continue, Shift+Enter=new conversation)", id="prompt")
+            prompt_input = PromptInput(
+                placeholder="Enter prompt (Enter=send, /new=new chat)",
+                id="prompt",
+            )
+            yield prompt_input
+            yield SlashCommandAutoComplete(prompt_input, SLASH_COMMANDS)
 
     def on_mount(self) -> None:
         """Focus the prompt input on startup."""
         self.query_one("#prompt", Input).focus()
 
-    def submit_prompt(self, new_conversation: bool = False) -> None:
+    def submit_prompt(self) -> None:
         """Submit the current prompt to all models."""
         prompt_input = self.query_one("#prompt", Input)
         prompt_text = prompt_input.value.strip()
@@ -124,25 +176,41 @@ class MultiLLMApp(App):
         # Clear input
         prompt_input.value = ""
 
-        # Reset conversations if new conversation requested
-        if new_conversation:
-            self._init_conversations()
-            # Clear all logs
-            for model_id in MODELS:
-                log = self.query_one(f"#log-{sanitize_id(model_id)}", RichLog)
-                log.clear()
-
-        # Add separator and prompt to each log
+        # Add prompt to each log
         for model_id in MODELS:
             log = self.query_one(f"#log-{sanitize_id(model_id)}", RichLog)
-            if new_conversation:
-                log.write("[bold cyan]--- New Conversation ---[/]")
             log.write(f"[bold yellow]You:[/] {prompt_text}")
             log.write("")  # blank line before response
 
         # Stream responses from all models concurrently
         for model_id in MODELS:
             self.stream_to_model(model_id, prompt_text)
+
+    def handle_slash_command(self, command_text: str) -> None:
+        """Parse and execute a slash command."""
+        cmd = command_text.strip().lower()
+
+        if cmd in SLASH_COMMANDS:
+            handler_name = SLASH_COMMANDS[cmd].handler
+            handler = getattr(self, handler_name, None)
+            if handler:
+                self.query_one("#prompt", Input).value = ""
+                handler()
+
+    def cmd_new(self) -> None:
+        """Handler for /new command - clears logs and reinitializes conversations."""
+        # Clear all logs
+        for model_id in MODELS:
+            log = self.query_one(f"#log-{sanitize_id(model_id)}", RichLog)
+            log.clear()
+
+        # Reinitialize conversations
+        self._init_conversations()
+
+        # Show confirmation
+        for model_id in MODELS:
+            log = self.query_one(f"#log-{sanitize_id(model_id)}", RichLog)
+            log.write("[bold cyan]--- New Conversation Started ---[/]")
 
     @work(thread=True, group="llm")
     def stream_to_model(self, model_id: str, prompt: str) -> None:

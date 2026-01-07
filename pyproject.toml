@@ -9,6 +9,7 @@ dependencies = [
     "llm-anthropic>=0.23",
     "llm-gemini>=0.28.2",
     "textual>=7.0.1",
+    "textual-autocomplete>=4.0.6",
 ]
 
 [dependency-groups]
