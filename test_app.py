@@ -507,3 +507,362 @@ async def test_ctrl_c_binding_exists(mock_llm):
     bindings = [b for b in app.BINDINGS if b[0] == "ctrl+c"]
     assert len(bindings) == 1
     assert bindings[0][1] == "quit"
+
+
+# --- Additional Coverage: sanitize_id() Unit Tests ---
+
+
+def test_sanitize_id_replaces_dots():
+    """sanitize_id should replace dots with hyphens."""
+    result = sanitize_id("claude-opus-4.5")
+    assert result == "claude-opus-4-5"
+    assert "." not in result
+
+
+def test_sanitize_id_replaces_slashes():
+    """sanitize_id should replace slashes with hyphens."""
+    result = sanitize_id("gemini/gemini-flash-latest")
+    assert result == "gemini-gemini-flash-latest"
+    assert "/" not in result
+
+
+def test_sanitize_id_replaces_both_dots_and_slashes():
+    """sanitize_id should replace both dots and slashes."""
+    result = sanitize_id("provider/model.version")
+    assert result == "provider-model-version"
+    assert "." not in result
+    assert "/" not in result
+
+
+def test_sanitize_id_preserves_hyphens():
+    """sanitize_id should preserve existing hyphens."""
+    result = sanitize_id("claude-opus")
+    assert result == "claude-opus"
+
+
+def test_sanitize_id_empty_string():
+    """sanitize_id should handle empty string."""
+    result = sanitize_id("")
+    assert result == ""
+
+
+def test_sanitize_id_no_special_chars():
+    """sanitize_id should return unchanged string if no dots/slashes."""
+    result = sanitize_id("simple-model-name")
+    assert result == "simple-model-name"
+
+
+# --- Additional Coverage: SlashCommandAutoComplete.get_candidates() Tests ---
+
+
+def test_get_candidates_empty_string():
+    """get_candidates should return empty list for empty string."""
+    from textual.widgets import Input
+    from textual_autocomplete import TargetState
+
+    # Create a mock TargetState
+    mock_state = MagicMock(spec=TargetState)
+    mock_state.text = ""
+
+    autocomplete = SlashCommandAutoComplete.__new__(SlashCommandAutoComplete)
+    autocomplete.commands = SLASH_COMMANDS
+
+    candidates = autocomplete.get_candidates(mock_state)
+    assert candidates == []
+
+
+def test_get_candidates_non_slash_input():
+    """get_candidates should return empty list for non-slash input."""
+    from textual_autocomplete import TargetState
+
+    mock_state = MagicMock(spec=TargetState)
+    mock_state.text = "hello"
+
+    autocomplete = SlashCommandAutoComplete.__new__(SlashCommandAutoComplete)
+    autocomplete.commands = SLASH_COMMANDS
+
+    candidates = autocomplete.get_candidates(mock_state)
+    assert candidates == []
+
+
+def test_get_candidates_slash_only():
+    """get_candidates should return all commands for just '/'."""
+    from textual_autocomplete import TargetState
+
+    mock_state = MagicMock(spec=TargetState)
+    mock_state.text = "/"
+
+    autocomplete = SlashCommandAutoComplete.__new__(SlashCommandAutoComplete)
+    autocomplete.commands = SLASH_COMMANDS
+
+    candidates = autocomplete.get_candidates(mock_state)
+    assert len(candidates) == len(SLASH_COMMANDS)
+
+
+def test_get_candidates_partial_match():
+    """get_candidates should return matching commands for partial input."""
+    from textual_autocomplete import TargetState
+
+    mock_state = MagicMock(spec=TargetState)
+    mock_state.text = "/n"
+
+    autocomplete = SlashCommandAutoComplete.__new__(SlashCommandAutoComplete)
+    autocomplete.commands = SLASH_COMMANDS
+
+    candidates = autocomplete.get_candidates(mock_state)
+    assert len(candidates) == 1
+    assert candidates[0].main == "/new"
+
+
+def test_get_candidates_no_match():
+    """get_candidates should return empty list for non-matching slash input."""
+    from textual_autocomplete import TargetState
+
+    mock_state = MagicMock(spec=TargetState)
+    mock_state.text = "/xyz"
+
+    autocomplete = SlashCommandAutoComplete.__new__(SlashCommandAutoComplete)
+    autocomplete.commands = SLASH_COMMANDS
+
+    candidates = autocomplete.get_candidates(mock_state)
+    assert candidates == []
+
+
+def test_get_candidates_case_insensitive():
+    """get_candidates should match case-insensitively."""
+    from textual_autocomplete import TargetState
+
+    mock_state = MagicMock(spec=TargetState)
+    mock_state.text = "/NEW"
+
+    autocomplete = SlashCommandAutoComplete.__new__(SlashCommandAutoComplete)
+    autocomplete.commands = SLASH_COMMANDS
+
+    candidates = autocomplete.get_candidates(mock_state)
+    assert len(candidates) == 1
+    assert candidates[0].main == "/new"
+
+
+def test_get_candidates_includes_description():
+    """get_candidates should include command description as prefix."""
+    from textual_autocomplete import TargetState
+
+    mock_state = MagicMock(spec=TargetState)
+    mock_state.text = "/new"
+
+    autocomplete = SlashCommandAutoComplete.__new__(SlashCommandAutoComplete)
+    autocomplete.commands = SLASH_COMMANDS
+
+    candidates = autocomplete.get_candidates(mock_state)
+    assert len(candidates) == 1
+    assert candidates[0].prefix == SLASH_COMMANDS["/new"].description
+
+
+# --- Additional Coverage: ModelPanel.compose() Tests ---
+
+
+@pytest.mark.asyncio
+async def test_model_panel_compose_yields_static_title(mock_llm):
+    """ModelPanel.compose() should yield a Static with the correct title."""
+    from textual.widgets import Static
+
+    app = MultiLLMApp()
+    async with app.run_test() as pilot:
+        panel = app.query_one("#panel-claude-opus-4-5", ModelPanel)
+        static = panel.query_one(Static)
+        # The static should exist and be a panel-title
+        assert static is not None
+        assert "panel-title" in static.classes
+
+
+@pytest.mark.asyncio
+async def test_model_panel_compose_yields_richlog_with_id(mock_llm):
+    """ModelPanel.compose() should yield a RichLog with correct ID."""
+    app = MultiLLMApp()
+    async with app.run_test() as pilot:
+        for model_id in MODELS:
+            panel = app.query_one(f"#panel-{sanitize_id(model_id)}", ModelPanel)
+            log = panel.query_one(RichLog)
+            assert log.id == f"log-{sanitize_id(model_id)}"
+
+
+# --- Additional Coverage: PromptInput Edge Cases ---
+
+
+@pytest.mark.asyncio
+async def test_whitespace_only_prompt_ignored(mock_llm):
+    """Submitting whitespace-only prompt should do nothing."""
+    app = MultiLLMApp()
+    async with app.run_test() as pilot:
+        prompt = app.query_one("#prompt", PromptInput)
+        prompt.value = "   "  # Only whitespace
+        await pilot.press("enter")
+
+        # Logs should remain empty
+        for model_id in MODELS:
+            log = app.query_one(f"#log-{sanitize_id(model_id)}", RichLog)
+            assert len(log.lines) == 0
+
+
+@pytest.mark.asyncio
+async def test_slash_command_case_insensitive(mock_llm):
+    """/NEW should work the same as /new (case insensitive)."""
+    app = MultiLLMApp()
+    async with app.run_test() as pilot:
+        prompt = app.query_one("#prompt", PromptInput)
+        prompt.value = "/NEW"
+        await pilot.press("enter")
+
+        # Command should execute, input should be cleared
+        assert prompt.value == ""
+
+        # Logs should have confirmation message
+        for model_id in MODELS:
+            log = app.query_one(f"#log-{sanitize_id(model_id)}", RichLog)
+            assert len(log.lines) == 1
+
+
+@pytest.mark.asyncio
+async def test_slash_command_with_leading_space_still_executes(mock_llm):
+    """' /new' (with leading space) should still execute as command after strip()."""
+    app = MultiLLMApp()
+    async with app.run_test() as pilot:
+        prompt = app.query_one("#prompt", PromptInput)
+        prompt.value = " /new"  # Leading space - gets stripped by on_key
+        await pilot.press("enter")
+
+        # Input should be cleared (command executed)
+        assert prompt.value == ""
+
+        # Logs should have confirmation message (command executed, not regular prompt)
+        for model_id in MODELS:
+            log = app.query_one(f"#log-{sanitize_id(model_id)}", RichLog)
+            # Should have only the confirmation message
+            assert len(log.lines) == 1
+
+
+# --- Additional Coverage: handle_slash_command Edge Cases ---
+
+
+@pytest.mark.asyncio
+async def test_handle_slash_command_with_trailing_whitespace(mock_llm):
+    """Slash command with trailing whitespace should still work."""
+    app = MultiLLMApp()
+    async with app.run_test() as pilot:
+        # Directly call handle_slash_command with trailing whitespace
+        app.handle_slash_command("/new   ")
+
+        # Command should execute, confirmation should appear
+        for model_id in MODELS:
+            log = app.query_one(f"#log-{sanitize_id(model_id)}", RichLog)
+            assert len(log.lines) == 1
+
+
+@pytest.mark.asyncio
+async def test_handle_slash_command_with_mixed_case(mock_llm):
+    """Slash command with mixed case should work."""
+    app = MultiLLMApp()
+    async with app.run_test() as pilot:
+        app.handle_slash_command("/NeW")
+
+        for model_id in MODELS:
+            log = app.query_one(f"#log-{sanitize_id(model_id)}", RichLog)
+            assert len(log.lines) == 1
+
+
+@pytest.mark.asyncio
+async def test_handle_unknown_slash_command_does_nothing(mock_llm):
+    """Unknown slash command should not crash or modify state."""
+    app = MultiLLMApp()
+    async with app.run_test() as pilot:
+        original_convs = {k: v for k, v in app.conversations.items()}
+
+        # Call with unknown command
+        app.handle_slash_command("/unknown")
+
+        # Conversations should remain unchanged
+        for model_id in MODELS:
+            assert app.conversations[model_id] is original_convs[model_id]
+            log = app.query_one(f"#log-{sanitize_id(model_id)}", RichLog)
+            assert len(log.lines) == 0
+
+
+# --- Additional Coverage: main() Function ---
+
+
+def test_main_function_creates_app():
+    """main() should create and return an app (when mocked)."""
+    from app import main
+
+    with patch("app.MultiLLMApp") as MockApp:
+        mock_app_instance = MagicMock()
+        MockApp.return_value = mock_app_instance
+
+        main()
+
+        MockApp.assert_called_once()
+        mock_app_instance.run.assert_called_once()
+
+
+# --- Additional Coverage: Multiple/Rapid Operations ---
+
+
+@pytest.mark.asyncio
+async def test_multiple_consecutive_prompts(mock_llm):
+    """Can send multiple prompts in rapid succession."""
+    app = MultiLLMApp()
+    async with app.run_test() as pilot:
+        prompt = app.query_one("#prompt", PromptInput)
+
+        # Send multiple prompts
+        for i in range(3):
+            prompt.value = f"Message {i}"
+            await pilot.press("enter")
+
+        await pilot.pause()
+
+        # Logs should have content from all prompts
+        for model_id in MODELS:
+            log = app.query_one(f"#log-{sanitize_id(model_id)}", RichLog)
+            # Each prompt adds: You line + blank + response + blank = ~4 lines each
+            assert len(log.lines) >= 6  # At least 2 prompts worth
+
+
+@pytest.mark.asyncio
+async def test_prompt_with_special_characters(mock_llm):
+    """Prompts with special characters should be handled."""
+    app = MultiLLMApp()
+    async with app.run_test() as pilot:
+        prompt = app.query_one("#prompt", PromptInput)
+        prompt.value = "Hello <world> & 'test' \"quotes\""
+        await pilot.press("enter")
+        await pilot.pause()
+
+        # Should complete without error
+        assert prompt.value == ""
+        for model_id in MODELS:
+            log = app.query_one(f"#log-{sanitize_id(model_id)}", RichLog)
+            assert len(log.lines) >= 2
+
+
+# --- Additional Coverage: SlashCommand Dataclass ---
+
+
+def test_slash_command_dataclass_fields():
+    """SlashCommand dataclass should have all required fields."""
+    from app import SlashCommand
+
+    cmd = SlashCommand(name="test", description="Test command", handler="test_handler")
+    assert cmd.name == "test"
+    assert cmd.description == "Test command"
+    assert cmd.handler == "test_handler"
+
+
+def test_slash_command_all_handlers_exist():
+    """All handlers referenced in SLASH_COMMANDS should exist on MultiLLMApp."""
+    from app import MultiLLMApp
+
+    for cmd_name, cmd in SLASH_COMMANDS.items():
+        handler = getattr(MultiLLMApp, cmd.handler, None)
+        assert handler is not None, f"Handler '{cmd.handler}' for {cmd_name} not found"
+        assert callable(handler), f"Handler '{cmd.handler}' is not callable"
