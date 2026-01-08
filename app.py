@@ -72,7 +72,7 @@ class ModelPanel(Vertical):
 
     def compose(self) -> ComposeResult:
         yield Static(self.title, classes="panel-title")
-        yield RichLog(id=f"log-{sanitize_id(self.model_id)}", markup=True, wrap=True)
+        yield RichLog(id=f"log-{sanitize_id(self.model_id)}", markup=True, wrap=True, min_width=0)
 
 
 class PromptInput(Input):
@@ -122,6 +122,7 @@ class MultiLLMApp(App):
     RichLog {
         height: 1fr;
         scrollbar-gutter: stable;
+        text-wrap: wrap;
     }
 
     #prompt-container {

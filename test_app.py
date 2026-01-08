@@ -257,10 +257,10 @@ async def test_slash_new_clears_all_logs(mock_llm):
         prompt.value = "/new"
         await pilot.press("enter")
 
-        # Logs should only have the confirmation message
+        # Logs should only have the confirmation message (may wrap to 2 lines)
         for model_id in MODELS:
             log = app.query_one(f"#log-{sanitize_id(model_id)}", RichLog)
-            assert len(log.lines) == 1  # Just confirmation
+            assert 1 <= len(log.lines) <= 2  # Just confirmation, possibly wrapped
 
 
 @pytest.mark.asyncio
@@ -289,10 +289,10 @@ async def test_slash_new_shows_confirmation(mock_llm):
         prompt.value = "/new"
         await pilot.press("enter")
 
-        # Each log should have the confirmation message
+        # Each log should have the confirmation message (may wrap to 2 lines)
         for model_id in MODELS:
             log = app.query_one(f"#log-{sanitize_id(model_id)}", RichLog)
-            assert len(log.lines) == 1
+            assert 1 <= len(log.lines) <= 2
 
 
 @pytest.mark.asyncio
@@ -719,7 +719,7 @@ async def test_slash_command_case_insensitive(mock_llm):
         # Logs should have confirmation message
         for model_id in MODELS:
             log = app.query_one(f"#log-{sanitize_id(model_id)}", RichLog)
-            assert len(log.lines) == 1
+            assert 1 <= len(log.lines) <= 2
 
 
 @pytest.mark.asyncio
@@ -738,7 +738,7 @@ async def test_slash_command_with_leading_space_still_executes(mock_llm):
         for model_id in MODELS:
             log = app.query_one(f"#log-{sanitize_id(model_id)}", RichLog)
             # Should have only the confirmation message
-            assert len(log.lines) == 1
+            assert 1 <= len(log.lines) <= 2
 
 
 # --- Additional Coverage: handle_slash_command Edge Cases ---
@@ -755,7 +755,7 @@ async def test_handle_slash_command_with_trailing_whitespace(mock_llm):
         # Command should execute, confirmation should appear
         for model_id in MODELS:
             log = app.query_one(f"#log-{sanitize_id(model_id)}", RichLog)
-            assert len(log.lines) == 1
+            assert 1 <= len(log.lines) <= 2
 
 
 @pytest.mark.asyncio
@@ -767,7 +767,7 @@ async def test_handle_slash_command_with_mixed_case(mock_llm):
 
         for model_id in MODELS:
             log = app.query_one(f"#log-{sanitize_id(model_id)}", RichLog)
-            assert len(log.lines) == 1
+            assert 1 <= len(log.lines) <= 2
 
 
 @pytest.mark.asyncio
