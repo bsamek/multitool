@@ -6,3 +6,6 @@ dist/
 build/
 .eggs/
 .claude/
+.coverage
+htmlcov/
+.pytest_cache/
